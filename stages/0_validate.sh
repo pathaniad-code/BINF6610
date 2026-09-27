@@ -15,6 +15,19 @@ mkdir -p "$OUTDIR/0_validate"
 
 [[ -f "$SHEET" ]] || die "samplesheet not found: $SHEET"
 
+# fastq_is_truncated <path>
+# gzip -t only validates the gzip container's own checksum — a file whose
+# FASTQ content was cut off mid-record can still be a perfectly valid,
+# properly-closed gzip stream, so gzip -t reports it as fine. A truncated
+# FASTQ has to be caught by its content: a record is always exactly four
+# lines, so a line count that isn't a multiple of four means the file
+# stops partway through a read.
+fastq_is_truncated() {
+    local path="$1"
+    local lines
+    lines=$(gzip -dc "$path" 2>/dev/null | wc -l)
+    [[ $((lines % 4)) -ne 0 ]]
+}
 problems=()
 declare -A seen_ids
 n_rows=0
@@ -41,6 +54,8 @@ while IFS= read -r row; do
         problems+=("sample '${sample_id}': r1_fastq not found: ${r1_fastq}")
     elif ! gzip -t "$r1_fastq" 2>/dev/null; then
         problems+=("sample '${sample_id}': r1_fastq is a truncated or corrupt .fastq.gz: ${r1_fastq}")
+    elif fastq_is_truncated "$r1_fastq"; then
+        problems+=("sample '${sample_id}': r1_fastq is a truncated .fastq.gz (record count is not a multiple of 4): ${r1_fastq}")
     fi
 
     # library_type decides whether r2 is required — never the sample's name
@@ -52,6 +67,8 @@ while IFS= read -r row; do
                 problems+=("sample '${sample_id}': r2_fastq not found: ${r2_fastq}")
             elif ! gzip -t "$r2_fastq" 2>/dev/null; then
                 problems+=("sample '${sample_id}': r2_fastq is a truncated or corrupt .fastq.gz: ${r2_fastq}")
+            elif fastq_is_truncated "$r2_fastq"; then
+                problems+=("sample '${sample_id}': r2_fastq is a truncated .fastq.gz (record count is not a multiple of 4): ${r2_fastq}")
             fi
             ;;
         single)
