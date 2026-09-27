@@ -1,0 +1,9 @@
+{
+  "git_sha": "f7cbd48",
+  "run_timestamp_utc": "2026-09-26T20:28:24.285274Z",
+  "reference": "/home/claude/smoke/smoke.fa",
+  "calling_region": "smoke_1mb",
+  "samplesheet": "/home/claude/smoke/samplesheet.csv",
+  "n_samples": 3,
+  "cohort_vcf": "/home/claude/smoke-out/7_analyze/cohort.filtered.vcf.gz"
+}
