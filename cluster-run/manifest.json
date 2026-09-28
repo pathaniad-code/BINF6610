@@ -1,0 +1,49 @@
+{
+  "pipeline": {
+    "name": "variant-call",
+    "version": "1.0.0",
+    "implementation": "slurm",
+    "git_sha": "ab8991dede1e3a61aef4a65c7273be0d0d301ece",
+    "run_id": "2026-09-28T16:06:11Z-ab8991d",
+    "started_at": "2026-09-28T16:06:11Z",
+    "finished_at": "2026-09-28T16:14:00Z",
+    "exit_status": "success"
+  },
+  "platform": {
+    "kind": "slurm",
+    "region": "chr20:1-10000000",
+    "host": "c0584",
+    "slurm_job_id": "10657121",
+    "slurm_cpus": "4",
+    "container": "none"
+  },
+  "reference": {"genome": "/courses/BINF6610.202710/data/refs/grch38-1000g/GRCh38_full_analysis_set_plus_decoy_hla.fa"},
+  "samples": [
+    {"sample_id": "NA12878", "library_type": "paired", "condition": "affected"},
+    {"sample_id": "NA12891", "library_type": "paired", "condition": "affected"},
+    {"sample_id": "NA12892", "library_type": "single", "condition": "unaffected"},
+    {"sample_id": "NA07357", "library_type": "paired", "condition": "unaffected"},
+    {"sample_id": "NA12003", "library_type": "single", "condition": "affected"},
+    {"sample_id": "NA10851", "library_type": "paired", "condition": "unaffected"},
+    {"sample_id": "NA12813", "library_type": "paired", "condition": "affected"},
+    {"sample_id": "NA12873", "library_type": "paired", "condition": "unaffected"}
+  ],
+  "outputs": [
+    {"stage": "analyze", "type": "vcf", "path": "cohort.filtered.vcf.gz", "checksum": "sha256:2db4391a1bdd4a040b06eadd9578e3121ff4b3b7ae6c60b19a2d33f39f928b7a"},
+    {"stage": "analyze", "type": "vcf_index", "path": "cohort.filtered.vcf.gz.tbi", "checksum": "sha256:992f46eddbe93767c164146b44cc3cd26d27d81c6e58a0c14a6847a55dc7576b"},
+    {"stage": "publish", "type": "samples", "path": "samples.tsv", "checksum": "sha256:300ec84d879799631f4f39ef413442b538654817aed70f613784915a3c0b3b4d"},
+    {"stage": "publish", "type": "file", "path": "variants_by_filter.tsv", "checksum": "sha256:6a4a9683803e7c8f1723aac1a194aef0f80ab2159e366519113dc08d3a3b2544"}
+  ],
+  "metrics": [],
+  "tools": {
+    "bwa": "0.7.19-r1273",
+    "samtools": "1.24",
+    "bcftools": "1.24",
+    "gatk": "4.6.2.0",
+    "fastqc": "0.12.1",
+    "fastp": "1.3.7",
+    "multiqc": "1.35",
+    "hisat2": "2.2.3",
+    "featureCounts": "2.1.1"
+  }
+}
