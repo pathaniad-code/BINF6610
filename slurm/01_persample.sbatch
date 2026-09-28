@@ -5,7 +5,7 @@
 #SBATCH --array=1-8
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=16G
-#SBATCH --time=01:00:00
+#SBATCH --time=00:30:00
 #SBATCH --export=NONE
 #SBATCH --output=logs/persample_%A_%a.out
 # Stages 0-5 for ONE sample, as one task of an array. This file decides WHICH
