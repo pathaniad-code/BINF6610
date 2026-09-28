@@ -114,3 +114,33 @@ record-count check in stage 0 as secondary hardening, switching `wc -l` to
 less work than it should is invisible to it, so the check has to be an
 assertion on the data: here, that the number of rows processed equals the
 number of rows in the file.
+
+## The "truncated" fixture that wasn't truncated
+
+**Symptom.** After fixing the samplesheet loop, the two gzip tests still
+failed the same way.
+
+**Evidence.** I built a truncated file by hand and stage 0 caught it and
+named the sample — so the check worked. I then rebuilt the harness's own
+fixture from `run_acceptance.sh`:
+
+    fq "${FQ}/whole.fastq.gz" 20
+    head -c 120 "${FQ}/whole.fastq.gz" > "${FQ}/cut_R1.fastq.gz"
+
+Its 20 records are near-identical, so gzip compresses them to **109
+bytes** — and `head -c 120` copies the whole file. `cut_R1.fastq.gz` is
+byte-identical to `whole.fastq.gz`: `gzip -t` returns 0, line count a
+clean multiple of four. There was nothing to detect.
+
+**Cause.** The fixture's real defect is that `cut_R2` is a copy of a
+4-record file while `cut_R1` has 20 — the mates disagree — and my stage 0
+had no R1/R2 record-count comparison.
+
+**Fix.** Added that comparison in the `paired)` branch, behind the
+existing `-f` and `gzip -t` checks so a missing R2 isn't reported twice,
+with the sample id in the message.
+
+**Lesson.** A test's description of what it checks and what it actually
+checks can differ. `gzip -t` was the stated route and was unreachable on
+my gzip; the check that caught it was the one the assignment names
+separately — R1 and R2 agree.
