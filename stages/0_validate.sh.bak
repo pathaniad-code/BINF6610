@@ -67,25 +67,21 @@ while IFS= read -r row; do
     # library_type decides whether r2 is required — never the sample's name
     case "$library_type" in
         paired)
-    if [[ -z "$r2_fastq" ]]; then
-        problems+=("sample '${sample_id}': library_type is paired but r2_fastq is empty")
-    elif [[ ! -f "$r2_fastq" ]]; then
-        problems+=("sample '${sample_id}': r2_fastq not found: ${r2_fastq}")
-    elif ! gzip -t "$r2_fastq" 2>/dev/null; then
-        problems+=("sample '${sample_id}': r2_fastq is a truncated or corrupt .fastq.gz: ${r2_fastq}")
-    else
-        n1=$(gzip -dc "$r1_fastq" 2>/dev/null | awk 'END{print NR}') || true
-        n2=$(gzip -dc "$r2_fastq" 2>/dev/null | awk 'END{print NR}') || true
-        if [[ "${n1:-0}" -ne "${n2:-0}" ]]; then
-            problems+=("sample '${sample_id}': R1 has $(( ${n1:-0} / 4 )) reads, R2 has $(( ${n2:-0} / 4 )) — mates disagree")
-        fi
-    fi
-    ;;
-    single)
-        if [[ -n "$r2_fastq" ]]; then
-            problems+=("sample '${sample_id}': library_type is single but r2_fastq is set: ${r2_fastq}")
-        fi
-        ;;
+            if [[ -z "$r2_fastq" ]]; then
+                problems+=("sample '${sample_id}': library_type is 'paired' but r2_fastq is empty")
+            elif [[ ! -f "$r2_fastq" ]]; then
+                problems+=("sample '${sample_id}': r2_fastq not found: ${r2_fastq}")
+            elif ! gzip -t "$r2_fastq" 2>/dev/null; then
+                problems+=("sample '${sample_id}': r2_fastq is a truncated or corrupt .fastq.gz: ${r2_fastq}")
+            elif fastq_is_truncated "$r2_fastq"; then
+                problems+=("sample '${sample_id}': r2_fastq is a truncated .fastq.gz (record count not multiple of 4)")
+            fi
+            ;;
+        single)
+            if [[ -n "$r2_fastq" ]]; then
+                problems+=("sample '${sample_id}': library_type is 'single' but r2_fastq is not empty")
+            fi
+            ;;
         *)
             problems+=("sample '${sample_id}': library_type must be 'paired' or 'single', got '${library_type}'")
             ;;

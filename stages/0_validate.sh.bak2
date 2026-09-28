@@ -81,11 +81,6 @@ while IFS= read -r row; do
         fi
     fi
     ;;
-    single)
-        if [[ -n "$r2_fastq" ]]; then
-            problems+=("sample '${sample_id}': library_type is single but r2_fastq is set: ${r2_fastq}")
-        fi
-        ;;
         *)
             problems+=("sample '${sample_id}': library_type must be 'paired' or 'single', got '${library_type}'")
             ;;

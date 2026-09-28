@@ -1,9 +1,9 @@
 {
-  "git_sha": "f7cbd48",
-  "run_timestamp_utc": "2026-09-26T20:28:24.285274Z",
-  "reference": "/home/claude/smoke/smoke.fa",
+  "git_sha": "2390da9-dirty",
+  "run_timestamp_utc": "2026-09-28T02:48:53.766574Z",
+  "reference": "/home/linux/smoke/smoke.fa",
   "calling_region": "smoke_1mb",
-  "samplesheet": "/home/claude/smoke/samplesheet.csv",
+  "samplesheet": "/home/linux/smoke/samplesheet.csv",
   "n_samples": 3,
-  "cohort_vcf": "/home/claude/smoke-out/7_analyze/cohort.filtered.vcf.gz"
+  "cohort_vcf": "/home/linux/smoke-out/7_analyze/cohort.filtered.vcf.gz"
 }
