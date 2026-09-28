@@ -1,9 +1,112 @@
 {
-  "git_sha": "2390da9-dirty",
-  "run_timestamp_utc": "2026-09-28T02:48:53.766574Z",
-  "reference": "/home/linux/smoke/smoke.fa",
-  "calling_region": "smoke_1mb",
-  "samplesheet": "/home/linux/smoke/samplesheet.csv",
-  "n_samples": 3,
-  "cohort_vcf": "/home/linux/smoke-out/7_analyze/cohort.filtered.vcf.gz"
+  "pipeline": {
+    "name": "variant-call",
+    "version": "1.0.0",
+    "implementation": "bash",
+    "git_sha": "34d6e11",
+    "run_id": "2026-09-28T03:44:58Z-34d6",
+    "started_at": "2026-09-28T03:44:58Z",
+    "finished_at": "2026-09-28T03:44:58Z",
+    "exit_status": "success"
+  },
+  "platform": {
+    "kind": "laptop"
+  },
+  "reference": {
+    "genome": "smoke.fa:smoke_1mb"
+  },
+  "samples": [
+    {
+      "sample_id": "smoke_01",
+      "library_type": "paired",
+      "condition": "unaffected"
+    },
+    {
+      "sample_id": "smoke_02",
+      "library_type": "paired",
+      "condition": "affected"
+    },
+    {
+      "sample_id": "smoke_03",
+      "library_type": "single",
+      "condition": "affected"
+    }
+  ],
+  "outputs": [
+    {
+      "stage": "analyze",
+      "type": "cohort_vcf",
+      "path": "7_analyze/cohort.filtered.vcf.gz",
+      "checksum": "sha256:e7bda294183f4be8331d46a9c0dff25641acde1affeb72c156cacae8a2c5712f"
+    },
+    {
+      "stage": "publish",
+      "type": "sample_table",
+      "path": "9_publish/samples.tsv",
+      "checksum": "sha256:3f02f2b6a18d736478d76b7058941df10d37ac25e9a1e4f2b24aa8e716a61373"
+    },
+    {
+      "stage": "publish",
+      "type": "variant_filter_summary",
+      "path": "9_publish/variants_by_filter.tsv",
+      "checksum": "sha256:dc4748e643d4c5b2f748025602dbc9279f6b3893d286149f454f93cfbac3e003"
+    },
+    {
+      "stage": "qc_report",
+      "type": "multiqc",
+      "path": "8_qc_report/cohort_multiqc.html",
+      "checksum": "sha256:5f243b437730df752d67397b60deaffac235db848dbe9acda6bd4e2652db5597"
+    }
+  ],
+  "metrics": [
+    {
+      "sample_id": "smoke_01",
+      "metric": "pct_duplicates",
+      "value": 0.00037,
+      "unit": "percent",
+      "stage": "postprocess"
+    },
+    {
+      "sample_id": "smoke_01",
+      "metric": "n_variants_pass",
+      "value": 1003.0,
+      "unit": "count",
+      "stage": "analyze"
+    },
+    {
+      "sample_id": "smoke_02",
+      "metric": "pct_duplicates",
+      "value": 0.00022,
+      "unit": "percent",
+      "stage": "postprocess"
+    },
+    {
+      "sample_id": "smoke_02",
+      "metric": "n_variants_pass",
+      "value": 977.0,
+      "unit": "count",
+      "stage": "analyze"
+    },
+    {
+      "sample_id": "smoke_03",
+      "metric": "pct_duplicates",
+      "value": 0.014467,
+      "unit": "percent",
+      "stage": "postprocess"
+    },
+    {
+      "sample_id": "smoke_03",
+      "metric": "n_variants_pass",
+      "value": 945.0,
+      "unit": "count",
+      "stage": "analyze"
+    },
+    {
+      "sample_id": null,
+      "metric": "n_variants_pass",
+      "value": 2920.0,
+      "unit": "count",
+      "stage": "analyze"
+    }
+  ]
 }
