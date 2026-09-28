@@ -4,7 +4,7 @@
 #SBATCH --account=binf6610.202710
 #SBATCH --array=1-8
 #SBATCH --cpus-per-task=4
-#SBATCH --mem=16G
+#SBATCH --mem=20G
 #SBATCH --time=00:30:00
 #SBATCH --export=NONE
 #SBATCH --output=logs/persample_%A_%a.out

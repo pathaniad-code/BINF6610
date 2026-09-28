@@ -2,9 +2,9 @@
 #SBATCH --job-name=w2-cohort
 #SBATCH --partition=courses
 #SBATCH --account=binf6610.202710
-#SBATCH --cpus-per-task=4
-#SBATCH --mem=16G
-#SBATCH --time=01:00:00
+#SBATCH --cpus-per-task=2
+#SBATCH --mem=4G
+#SBATCH --time=00:30:00
 #SBATCH --export=NONE
 #SBATCH --output=logs/cohort_%j.out
 # Stages 6-9 (merge, analyze, qc_report, publish), once, after every array task
