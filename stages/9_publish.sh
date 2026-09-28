@@ -62,25 +62,7 @@ MANIFEST="$DEST/manifest.json"
 SHA="$(git_sha "$HERE")"
 N_SAMPLES=$(read_samplesheet "$SHEET" | grep -c .)
 
-python3 - "$MANIFEST" "$SHA" "$REF" "$REGION" "$SHEET" "$N_SAMPLES" "$VCF" <<'PY'
-import json, sys, datetime
-
-out, sha, ref, region, sheet, n_samples, vcf = sys.argv[1:8]
-
-manifest = {
-    "git_sha": sha,
-    "run_timestamp_utc": datetime.datetime.utcnow().isoformat() + "Z",
-    "reference": ref,
-    "calling_region": region,
-    "samplesheet": sheet,
-    "n_samples": int(n_samples),
-    "cohort_vcf": vcf,
-}
-
-with open(out, "w") as f:
-    json.dump(manifest, f, indent=2)
-    f.write("\n")
-PY
+python3 "$HERE/lib/write_manifest.py" "$MANIFEST" "$SHA" "$REF" "$REGION" "$SHEET" "$VCF" "$OUTDIR" "$DEST" "${PIPELINE_STARTED_AT:-}"
 
 log "published $SAMPLES_TSV"
 log "published $FILTER_TSV"
