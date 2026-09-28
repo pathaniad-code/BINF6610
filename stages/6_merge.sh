@@ -1,44 +1,56 @@
-#!/usr/bin/env bash
-# stages/6_merge.sh <samplesheet.csv> <outdir>
+# shellcheck shell=bash
+# stages/6_merge.sh — defines stage_merge. COHORT STAGE: run_sample.sh refuses it.
 # Joint genotyping across the whole cohort: every sample's GVCF goes into
 # one GenomicsDB workspace, then GenotypeGVCFs produces one multi-sample
 # VCF. This is where "eight human genomes in, one cohort VCF out" happens —
 # it has to see every sample at once, which is why it isn't part of stage 5.
+#
+# The workspace lives in $TMPDIR (the node's own disk): under /scratch the two
+# steps took 36-96 min on Explorer, in /tmp about 8. The job's trap removes it.
 
-set -euo pipefail
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source "$HERE/lib/common.sh"
+stage_merge() {
+    local GVCF_DIR="$OUTDIR/5_quantify" DEST="$OUTDIR/6_merge"
+    local DB="${TMPDIR:-/tmp}/genomicsdb" OUT="$OUTDIR/6_merge/cohort.vcf.gz"
+    local TMP_OUT="$OUTDIR/6_merge/cohort.tmp.vcf.gz" row missing=0
+    local args=()
+    mkdir -p "$DEST"
+    already_done "$OUT" && return 0
 
-SHEET="$1"
-OUTDIR="$2"
-GVCF_DIR="$OUTDIR/5_quantify"
-DEST="$OUTDIR/6_merge"
-DB="$DEST/genomicsdb"
-mkdir -p "$DEST"
-rm -rf "$DB"   # GenomicsDBImport refuses to write into an existing workspace
+    # Every sample in the sheet must have its GVCF. Genotyping the ones that
+    # happen to be there would give a plausible cohort VCF of the wrong cohort.
+    while IFS= read -r row; do
+        [[ -z "$row" ]] && continue
+        split_row "$row"
+        if [[ -s "$GVCF_DIR/${sample_id}.g.vcf.gz" ]]; then
+            args+=(-V "$GVCF_DIR/${sample_id}.g.vcf.gz")
+        else
+            log "missing GVCF for ${sample_id}"; missing=$((missing + 1))
+        fi
+    done < <(read_samplesheet "$SHEET")
+    [[ "$missing" -eq 0 ]] || die "${missing} sample(s) have no GVCF — refusing to genotype a partial cohort"
 
-args=()
-while IFS= read -r row; do
-    [[ -z "$row" ]] && continue
-    split_row "$row"
-    args+=(-V "$GVCF_DIR/${sample_id}.g.vcf.gz")
-done < <(read_samplesheet "$SHEET")
+    rm -rf "$DB"   # GenomicsDBImport refuses to write into an existing workspace
 
-log "GenomicsDBImport: importing ${#args[@]} GVCF(s) over region ${REGION}"
-"$GATK" GenomicsDBImport \
-    "${args[@]}" \
-    --genomicsdb-workspace-path "$DB" \
-    -L "$REGION" \
-    --verbosity WARNING \
-    2>> "$DEST/genomicsdbimport.log"
+    log "GenomicsDBImport: importing $(( ${#args[@]} / 2 )) GVCF(s) over region ${REGION}"
+    "$GATK" GenomicsDBImport \
+        "${args[@]}" \
+        --genomicsdb-workspace-path "$DB" \
+        -L "$REGION" \
+        --tmp-dir "$TMPDIR" \
+        --verbosity WARNING \
+        2>> "$DEST/genomicsdbimport.log"
 
-log "GenotypeGVCFs: joint genotyping the cohort"
-"$GATK" GenotypeGVCFs \
-    --reference "$REF" \
-    --variant "gendb://$DB" \
-    --output "$DEST/cohort.vcf.gz" \
-    -L "$REGION" \
-    --verbosity WARNING \
-    2>> "$DEST/genotypegvcfs.log"
+    log "GenotypeGVCFs: joint genotyping the cohort"
+    "$GATK" GenotypeGVCFs \
+        --reference "$REF" \
+        --variant "gendb://$DB" \
+        --output "$TMP_OUT" \
+        -L "$REGION" \
+        --tmp-dir "$TMPDIR" \
+        --verbosity WARNING \
+        2>> "$DEST/genotypegvcfs.log"
 
-log "joint-genotyped cohort VCF written to $DEST/cohort.vcf.gz"
+    mv "$TMP_OUT.tbi" "$OUT.tbi"
+    mv "$TMP_OUT" "$OUT"
+    log "joint-genotyped cohort VCF written to $OUT"
+}
