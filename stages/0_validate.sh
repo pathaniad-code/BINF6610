@@ -25,8 +25,10 @@ mkdir -p "$OUTDIR/0_validate"
 fastq_is_truncated() {
     local path="$1"
     local lines
-    lines=$(gzip -dc "$path" 2>/dev/null | wc -l)
-    [[ $((lines % 4)) -ne 0 ]]
+    # awk's NR counts a last line that has no trailing newline; wc -l would
+    # not, so a file cut in the middle of a header would look complete.
+    lines=$(gzip -dc "$path" 2>/dev/null | awk 'END{print NR}') || true
+    [[ "${lines:-0}" -eq 0 || $((lines % 4)) -ne 0 ]]
 }
 problems=()
 declare -A seen_ids

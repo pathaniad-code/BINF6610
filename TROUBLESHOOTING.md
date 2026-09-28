@@ -53,63 +53,64 @@ that might `exit` before consuming all its input has the same exposure —
 worth grepping for `zcat .* | .*exit` in the other stages before this
 pattern bites again somewhere else.
 
-## Stage 0 accepted a truncated `.fastq.gz` that it should have rejected
+## Stage 0 never looked at the last row of the samplesheet
 
-**Symptom.** Running the official acceptance harness (`tests/run_acceptance.sh`)
-against a passing-looking build showed two failures instead of nine passes:
+**Symptom.** The acceptance harness failed two tests that both concern a
+truncated `.fastq.gz`:
 
 ```
 FAIL  stage 0 reports every problem together
-      exited 1, but never named: CUTGZIP. A stage 0 that dies on the first
-      problem costs one run per typo. Collect them, then exit once.
+      exited 1, but never named: CUTGZIP.
 FAIL  catches a truncated .fastq.gz in stage 0
-      NA12891's R1 is a gzip stream with its tail cut off and stage 0
-      accepted it. 'gzip -t' is the check; the file opens fine and ends
-      in the middle.
+      NA12891's R1 is a gzip stream with its tail cut off and stage 0 accepted it.
 ```
 
-Both failures came from the same root cause: one of the harness's four
-broken fixture samples is a `.fastq.gz` that was truncated in a specific
-way, and stage 0 let it through.
+The second message is the branch the harness reaches only when stage 0
+exited **0**. Stage 0 already contained `gzip -t`, so it was not obvious why
+a cut-off file got through.
 
-**Evidence that located the cause.** Reproducing the fixture by hand —
-cutting a real FASTQ off after 1,000 whole reads plus one extra line,
-then re-gzipping the result — showed the gap directly:
+**First theory, tested and rejected.** I assumed `gzip -t` was too weak (it
+only checks the gzip container, so FASTQ text cut *before* compression still
+passes) and added a "line count is a multiple of 4" check. That is a real
+gap, but it was not this bug: the harness result did not change. A sweep of
+every possible byte-prefix of a small gzip file showed that *none* of them
+pass `gzip -t`, so a genuinely cut-off stream could not have been slipping
+past it. The file was not being examined at all.
+
+**Evidence that located the cause.** In the harness source
+(`tests/run_acceptance.sh`) `CUTGZIP` is the last of the three broken ids,
+and `NA12891` is likewise a row the fixture builds last. Building that shape
+of samplesheet by hand, with and without a final newline, and running stage 0
+on each:
+
+```
+sheet with trailing newline      -> "validation failed ... 'CUTGZIP'"   exit 1
+sheet with NO trailing newline   -> "validated 1 sample(s)"             exit 0
+```
+
+`tail -c 20 sheet.csv | od -c` confirmed the second sheet ends in `...q.gz`
+with no `\n`.
+
+**Cause.** `while IFS= read -r row; do ...; done` returns non-zero on a final
+line that has no terminating newline, even though `row` is filled in. The
+loop body never runs for that line, so the last sample was never validated
+(and, in the later stages, would never have been trimmed, aligned or called).
+Nothing failed and nothing was logged, which is why `set -euo pipefail` could
+not help: no command returned an error.
+
+**The fix.** Every stage reads the sheet through `read_samplesheet`, so it is
+fixed once, there:
 
 ```bash
-zcat smoke_01_R1.fastq.gz | head -n 4001 | gzip > cut_mid_record.fastq.gz
-gzip -t cut_mid_record.fastq.gz; echo $?      # -> 0  (gzip is satisfied!)
-zcat cut_mid_record.fastq.gz | wc -l          # -> 4001
+tail -n +2 "$sheet" | tr -d '\r' | awk 'NF'
 ```
 
-`gzip -t` only verifies the gzip *container's* own checksum. If the
-FASTQ content is cut off after the container was closed properly — i.e.
-the truncation happened before compression, not to the compressed
-stream itself — the result is a perfectly valid gzip file that just
-happens to hold an incomplete last record. `gzip -t` has nothing to
-object to, because from its point of view nothing is wrong: the CRC
-matches the bytes that are there. The problem is entirely at the FASTQ
-level: 4001 lines is one line short of a whole number of 4-line records.
+`awk` re-emits each record with a newline (so the last row is delivered),
+`tr` strips Windows line endings, and `NF` skips blank lines. I kept the
+record-count check in stage 0 as secondary hardening, switching `wc -l` to
+`awk 'END{print NR}'` because `wc -l` does not count a dangling last line.
 
-**The fix.** Stage 0 now checks record completeness in addition to
-container integrity — a FASTQ's line count must be a multiple of 4:
-
-```bash
-fastq_is_truncated() {
-    local path="$1"
-    local lines
-    lines=$(gzip -dc "$path" 2>/dev/null | wc -l)
-    [[ $((lines % 4)) -ne 0 ]]
-}
-```
-
-This runs after `gzip -t` for each of `r1_fastq` and `r2_fastq`, so a
-corrupt gzip container is still caught first (cheaper check, clearer
-message), and a truncated-but-valid-gzip FASTQ is now caught too.
-
-**Lesson.** "The file is valid" and "the file is complete" are different
-claims, and a format's own integrity check (gzip's CRC) only proves the
-first one. Any validation step that wraps a container format around
-something with its own structure (FASTQ's 4-line records, in this case)
-needs a second check at the inner format's level — checking the outer
-format alone leaves exactly this gap.
+**Lesson.** `set -e` only sees commands that fail. A loop that quietly does
+less work than it should is invisible to it, so the check has to be an
+assertion on the data: here, that the number of rows processed equals the
+number of rows in the file.

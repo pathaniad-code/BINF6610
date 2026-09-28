@@ -20,7 +20,14 @@ die() {
 # calling code branches on $library_type, never on $sample_id.
 read_samplesheet() {
     local sheet="$1"
-    tail -n +2 "$sheet"
+    # Normalise before anything reads a row:
+    #  - awk re-emits every record with a newline, so a final row that has no
+    #    trailing newline is still delivered. Without this, `while read` returns
+    #    non-zero on that last line and the loop body silently never runs for
+    #    it, so the last sample is never validated, aligned, or called.
+    #  - tr strips CRs, so a sheet saved with Windows line endings parses too.
+    #  - NF skips blank lines.
+    tail -n +2 "$sheet" | tr -d '\r' | awk 'NF'
 }
 
 # split a CSV data row into named vars: sample_id, condition, replicate,
