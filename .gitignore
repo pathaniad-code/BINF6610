@@ -7,3 +7,4 @@ slurm/logs/
 *.vcf.gz
 *.tbi
 slurm/BREAK_TASK_*
+*.sif
