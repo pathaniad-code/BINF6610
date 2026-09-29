@@ -8,3 +8,4 @@ slurm/logs/
 *.tbi
 slurm/BREAK_TASK_*
 *.sif
+pull-*.out
