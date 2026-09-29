@@ -1,0 +1,2 @@
+be27b3345872d7a1265fdae431585432edaccd1d64130aa54a8353931a91c0a4  last week: course conda env (cluster-run/)
+be27b3345872d7a1265fdae431585432edaccd1d64130aa54a8353931a91c0a4  this week: variant-call image (cluster-run-container/)
