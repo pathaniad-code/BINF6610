@@ -10,7 +10,7 @@
 #SBATCH --output=logs/persample_%A_%a.out
 # Stages 0-5 for ONE sample, as one task of an array. This file decides WHICH
 # sample runs and with what resources; the pipeline decides what to do to it.
-set -eo pipefail          # no -u: conda's activate scripts read unset variables
+set -eo pipefail          # no -u: kept from week 2; the job sources slurm.env with optional vars
 
 # $SLURM_SUBMIT_DIR, not $(dirname "$0"): sbatch runs a COPY of this script from
 # /var/spool/slurmd, so $0 is not in slurm/ and conf/ is not beside it.
@@ -19,8 +19,6 @@ if [[ ! -s "${SLURM_SUBMIT_DIR}/conf/slurm.env" ]]; then
 fi
 source "${SLURM_SUBMIT_DIR}/conf/slurm.env"
 
-module load miniconda3/25.9.1
-source activate "${CONDA_ENV}"
 
 export THREADS="${SLURM_CPUS_PER_TASK}"      # from Slurm, never typed as a number
 export TMPDIR="/tmp/${SLURM_JOB_ID}"         # the node's own disk
@@ -39,7 +37,13 @@ fi
 echo "job=${SLURM_JOB_ID} task=${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID} host=$(hostname) sample=${SAMPLE} threads=${THREADS}"
 df -h /tmp | tail -n 1
 
-bash "${PIPELINE_DIR}/run_sample.sh" "${SAMPLESHEET}" "${RUN_ROOT}" "${SAMPLE}"
+SIF=/scratch/${USER}/containers/variant-call-1.0.0.sif
+apptainer exec --cleanenv \
+    --bind "${PIPELINE_DIR}",/scratch/${USER},/courses/BINF6610.202710 \
+    --env THREADS="${THREADS}" \
+    --env TMPDIR="${TMPDIR}" \
+    --env SLURM_JOB_ID="${SLURM_JOB_ID}" \
+    "${SIF}" bash "${PIPELINE_DIR}/run_sample.sh" "${SAMPLESHEET}" "${RUN_ROOT}" "${SAMPLE}"
 
 # the exact memory high-water mark, for RESOURCES.md
 CG=/sys/fs/cgroup$(awk -F: '/^0::/{print $3}' /proc/self/cgroup)

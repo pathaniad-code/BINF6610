@@ -16,8 +16,6 @@ if [[ ! -s "${SLURM_SUBMIT_DIR}/conf/slurm.env" ]]; then
 fi
 source "${SLURM_SUBMIT_DIR}/conf/slurm.env"
 
-module load miniconda3/25.9.1
-source activate "${CONDA_ENV}"
 
 export THREADS="${SLURM_CPUS_PER_TASK}"
 export TMPDIR="/tmp/${SLURM_JOB_ID}"
@@ -27,7 +25,13 @@ trap 'rm -rf "${TMPDIR}"' EXIT
 echo "job=${SLURM_JOB_ID} host=$(hostname) threads=${THREADS}"
 df -h /tmp | tail -n 1
 
-bash "${PIPELINE_DIR}/run_pipeline.sh" --samplesheet "${SAMPLESHEET}" --outdir "${RUN_ROOT}" --from merge
+SIF=/scratch/${USER}/containers/variant-call-1.0.0.sif
+apptainer exec --cleanenv \
+    --bind "${PIPELINE_DIR}",/scratch/${USER},/courses/BINF6610.202710 \
+    --env THREADS="${THREADS}" \
+    --env TMPDIR="${TMPDIR}" \
+    --env SLURM_JOB_ID="${SLURM_JOB_ID}" \
+    "${SIF}" bash "${PIPELINE_DIR}/run_pipeline.sh" --samplesheet "${SAMPLESHEET}" --outdir "${RUN_ROOT}" --from merge
 
 CG=/sys/fs/cgroup$(awk -F: '/^0::/{print $3}' /proc/self/cgroup)
 echo "memory.peak bytes: $(cat "$CG/memory.peak" 2>/dev/null || echo n/a)"
