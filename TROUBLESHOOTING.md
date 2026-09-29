@@ -263,3 +263,70 @@ partial GVCF was never mistaken for a finished one because every stage writes to
 and renames only after the tool exits 0; the skip check looks only for the final name. The
 finished GVCF (23.8 MB) is larger than the 15.4 MB fragment, which was a truncated file that a
 filename-only check would have accepted.
+
+## Week 3: the container
+
+### 1. A plain rebuild reused the cached install layer
+
+A second `docker build` finished in under a second: the install step was reused from cache, so a change upstream (a moved base-image tag, a republished package) would never reach the image.
+
+```
+$ docker build --platform linux/amd64 -t dpathania/variant-call:1.0.0 containers/
+#5 [1/2] FROM docker.io/mambaorg/micromamba:2.0.5-ubuntu24.04@sha256:1c62a28916ad7a4533555a542a5410e55ea2ed2c1e29f00c8fc3f1c8add111d5
+#6 [2/2] RUN micromamba install -y -n base       -c conda-forge -c bioconda --override-channels       bwa=0.7.19       samtools=1.24       bcftools=1.24       gatk4=4.6.2.0       fastqc=0.12.1       fastp=1.3.7       multiqc=1.35       git=2.49.0  && micromamba clean --all --yes
+#6 CACHED
+```
+
+Fix: rebuild with `--pull --no-cache`, which re-checks the base image and re-runs every step:
+
+```
+$ docker build --pull --no-cache --platform linux/amd64 -t dpathania/variant-call:rebuild-test containers/
+#5 [2/2] RUN micromamba install -y -n base       -c conda-forge -c bioconda --override-channels       bwa=0.7.19       samtools=1.24       bcftools=1.24       gatk4=4.6.2.0       fastqc=0.12.1       fastp=1.3.7       multiqc=1.35       git=2.49.0  && micromamba clean --all --yes
+#5 DONE 99.8s
+#6 DONE 150.1s
+```
+
+### 2. Missing path: the container cannot see /courses without --bind
+
+```
+$ apptainer exec --cleanenv $SIF ls /courses/BINF6610.202710/data/samplesheet-variant8.csv
+/usr/bin/ls: cannot access '/courses/BINF6610.202710/data/samplesheet-variant8.csv': No such file or directory
+$ apptainer exec --cleanenv --bind /courses/BINF6610.202710 $SIF ls /courses/BINF6610.202710/data/samplesheet-variant8.csv
+/courses/BINF6610.202710/data/samplesheet-variant8.csv
+```
+
+Fix: both job scripts pass `--bind "${PIPELINE_DIR}",/scratch/${USER},/courses/BINF6610.202710`.
+
+### 3. GATK thread count: --cleanenv drops THREADS
+
+`--cleanenv` removes every host variable, so without `--env THREADS=...` the pipeline ignores the job's CPU request and falls back to its own default (`THREADS=${THREADS:-4}` in lib/common.sh): a job given 8 cores would still run GATK with `--native-pair-hmm-threads` 4.
+
+```
+$ export THREADS=4
+$ apptainer exec --cleanenv $SIF bash -c 'echo "inside: THREADS=${THREADS:-unset}"'
+inside: THREADS=unset
+$ apptainer exec --cleanenv --env THREADS="$THREADS" $SIF bash -c 'echo "inside: THREADS=${THREADS:-unset}"'
+inside: THREADS=4
+$ grep -rn "THREADS:-" stages lib run_*.sh
+lib/common.sh:17:THREADS=${THREADS:-4}       # the Slurm job script sets it from SLURM_CPUS_PER_TASK
+```
+
+With `--env THREADS=${THREADS}` and `--env TMPDIR=${TMPDIR}` in the job scripts, the pipeline inside the container reports the job's values (host line first, then the line the pipeline prints inside the image):
+
+```
+job=10685800 task=10685797_1 host=c3014 sample=NA12878 threads=4
+[12:34:37] NA12878: stages validate..quantify  threads=4  tmp=/tmp/10685800
+```
+
+### 4. Architecture error: an arm64 image on Explorer's x86_64 nodes
+
+An image built for arm64 (what `docker build` produces on an Apple-silicon Mac without `--platform`) cannot run on Explorer:
+
+```
+$ apptainer pull --arch arm64 micromamba-arm64.sif docker://mambaorg/micromamba:2.0.5-ubuntu24.04
+$ apptainer exec micromamba-arm64.sif uname -m
+FATAL:   While checking container encryption: could not open image /scratch/pathania.d/containers/micromamba-arm64.sif: the image's architecture (arm64) could not run on the host's (amd64)
+host: x86_64
+```
+
+Fix: always build with `docker build --platform linux/amd64`.
