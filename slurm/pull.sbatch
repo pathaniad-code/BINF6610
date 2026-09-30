@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH -A binf6610.202710
 #SBATCH -p courses
-#SBATCH -c 8 --mem=16G -t 01:00:00
+#SBATCH -c 2 --mem=8G -t 00:30:00
 #SBATCH -J variant-call-pull
 #SBATCH -o pull-%j.out
 #
@@ -11,8 +11,7 @@ set -euo pipefail
 
 # Keep the download cache and build temp out of the quota'd $HOME.
 export APPTAINER_CACHEDIR=/scratch/${USER}/apptainer-cache
-export APPTAINER_TMPDIR=/tmp/${USER}-apptainer-${SLURM_JOB_ID}
-trap 'rm -rf "${APPTAINER_TMPDIR}"' EXIT
+export APPTAINER_TMPDIR=/scratch/${USER}/apptainer-tmp
 mkdir -p "${APPTAINER_CACHEDIR}" "${APPTAINER_TMPDIR}" "/scratch/${USER}/containers"
 
 SIF=/scratch/${USER}/containers/variant-call-1.0.0.sif
