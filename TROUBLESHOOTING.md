@@ -264,69 +264,102 @@ and renames only after the tool exits 0; the skip check looks only for the final
 finished GVCF (23.8 MB) is larger than the 15.4 MB fragment, which was a truncated file that a
 filename-only check would have accepted.
 
-## Week 3: the container
+## Week 3: four failures caused on purpose
 
-### 1. A plain rebuild reused the cached install layer
+### 1. An unpinned recipe rebuilt a day later
 
-A second `docker build` finished in under a second: the install step was reused from cache, so a change upstream (a moved base-image tag, a republished package) would never reach the image.
+In a scratch directory, a recipe with nothing pinned: `FROM ubuntu` (no tag, so whatever `latest` is on build day) and `apt-get install -y curl` (no `=version`).
 
 ```
-$ docker build --platform linux/amd64 -t dpathania/variant-call:1.0.0 containers/
-#5 [1/2] FROM docker.io/mambaorg/micromamba:2.0.5-ubuntu24.04@sha256:1c62a28916ad7a4533555a542a5410e55ea2ed2c1e29f00c8fc3f1c8add111d5
-#6 [2/2] RUN micromamba install -y -n base       -c conda-forge -c bioconda --override-channels       bwa=0.7.19       samtools=1.24       bcftools=1.24       gatk4=4.6.2.0       fastqc=0.12.1       fastp=1.3.7       multiqc=1.35       git=2.49.0  && micromamba clean --all --yes
+$ cat Dockerfile
+FROM ubuntu
+RUN apt-get update && apt-get install -y curl
+
+# day 1: base digest, image ID, date
+$ docker build --platform linux/amd64 -t tb1:day1 .
+$ docker buildx imagetools inspect ubuntu:latest | grep Digest ; docker image inspect --format "{{.Id}}" tb1:day1 ; date
+Digest:    sha256:da6fc2be547864451aa253836dd926da33623312df4a9a243e35dc877c378a78
+sha256:c3eee9b26f0cc45a6d3374442aa76c456f079f783bb2748c36c8105d8261ad36
+Tue Sep 29 13:20:52 EDT 2026
+
+# day 2: a plain rebuild is a cache hit and gives the identical image
+$ docker build --platform linux/amd64 -t tb1:plain .
+#1 DONE 0.0s
+#3 DONE 0.0s
+#2 DONE 1.5s
+#4 DONE 0.0s
+#5 DONE 0.1s
 #6 CACHED
+#7 DONE 0.2s
+
+# day 2: --pull fetches ubuntu again, --no-cache re-runs apt-get
+$ docker build --pull --no-cache --platform linux/amd64 -t tb1:day2 .
+Digest:    sha256:da6fc2be547864451aa253836dd926da33623312df4a9a243e35dc877c378a78
+sha256:949210d7442654435c5ee2d2bb4489128bcc75acd059a52710cde6add7493dd0
+Wed Sep 30 11:06:25 EDT 2026
+
+$ docker run --rm tb1:day1 dpkg -l > day1.txt ; docker run --rm tb1:day2 dpkg -l > day2.txt ; diff day1.txt day2.txt
+109c109
+< ii  openssl                        3.5.5-1ubuntu3.5                   amd64        Secure Sockets Layer toolkit - cryptographic utility
+---
+> ii  openssl                        3.5.5-1ubuntu3.6                   amd64        Secure Sockets Layer toolkit - cryptographic utility
 ```
 
-Fix: rebuild with `--pull --no-cache`, which re-checks the base image and re-runs every step:
+One package differs after one day: openssl went from `3.5.5-1ubuntu3.5` to `3.5.5-1ubuntu3.6`, a security update. The `ubuntu:latest` digest is the same on both days (`sha256:da6fc2be…`), so the change came entirely from the unpinned `apt-get install`, not from the base image. The two images have different IDs from the same two-line Dockerfile. The plain rebuild reused the cached apt-get layer and would have kept the old openssl without a word; only `--pull --no-cache` picked up the new one.
+
+Fix: tag the base image (never `latest`) and pin every package with `=version`. `containers/Dockerfile` uses `mambaorg/micromamba:2.0.5-ubuntu24.04`, pins all eight tools, and IMAGE.md records the base digest.
+
+### 2. --bind removed from one job script, one sample run
 
 ```
-$ docker build --pull --no-cache --platform linux/amd64 -t dpathania/variant-call:rebuild-test containers/
-#5 [2/2] RUN micromamba install -y -n base       -c conda-forge -c bioconda --override-channels       bwa=0.7.19       samtools=1.24       bcftools=1.24       gatk4=4.6.2.0       fastqc=0.12.1       fastp=1.3.7       multiqc=1.35       git=2.49.0  && micromamba clean --all --yes
-#5 DONE 99.8s
-#6 DONE 150.1s
+$ sed "/--bind/d" slurm/01_persample.sbatch > slurm/tb_nobind.sbatch
+$ sbatch -p courses -A binf6610.202710 --array=1 --export=RUN_TAG=nobind tb_nobind.sbatch
+$ tail logs/persample_10686333_1.out
+job=10686333 task=10686333_1 host=c3014 sample=NA12878 threads=4
+/dev/sda12      821G  5.8G  815G   1% /tmp
+[13:23:53] ERROR: samplesheet not found: /courses/BINF6610.202710/data/samplesheet-variant8.csv
+$ sacct -j 10686333 --format=JobID,State,ExitCode
+           JobID      State ExitCode 
+---------------- ---------- -------- 
+      10686333_1     FAILED      1:0 
+10686333_1.batch     FAILED      1:0 
 ```
 
-### 2. Missing path: the container cannot see /courses without --bind
+It stopped at once, before stage 1, with exit code 1: the pipeline checks the samplesheet first and the container could not see `/courses/BINF6610.202710/data/samplesheet-variant8.csv`. Without `--bind`, Apptainer shows the container only my home directory, `/tmp` and the submit directory; `/courses` (FASTQs, reference, samplesheet) and `/scratch/${USER}` (the run directory) are both invisible. `/courses` is simply the first one the pipeline needs. Because the pipeline checks its inputs up front, this failure is loud; a tool that tolerates a missing input would have carried on and exited 0.
+
+Fix: `--bind "${PIPELINE_DIR}",/scratch/${USER},/courses/BINF6610.202710` on the apptainer exec line of both job scripts.
+
+### 3. --env THREADS removed from one job script, one sample run on 8 cores
 
 ```
-$ apptainer exec --cleanenv $SIF ls /courses/BINF6610.202710/data/samplesheet-variant8.csv
-/usr/bin/ls: cannot access '/courses/BINF6610.202710/data/samplesheet-variant8.csv': No such file or directory
-$ apptainer exec --cleanenv --bind /courses/BINF6610.202710 $SIF ls /courses/BINF6610.202710/data/samplesheet-variant8.csv
-/courses/BINF6610.202710/data/samplesheet-variant8.csv
+$ sed "/--env THREADS=/d" slurm/01_persample.sbatch > slurm/tb_nothreads.sbatch
+$ sbatch -p courses -A binf6610.202710 --array=1 --cpus-per-task=8 --export=RUN_TAG=nothreads tb_nothreads.sbatch
+$ sacct -j 10686334 --format=JobID,State,ExitCode,AllocCPUS
+           JobID      State ExitCode  AllocCPUS 
+---------------- ---------- -------- ---------- 
+      10686334_1  COMPLETED      0:0          8 
+10686334_1.batch  COMPLETED      0:0          8 
+$ grep "threads=" logs/persample_10686334_1.out ; grep "\[main\] CMD" logs/persample_10686334_1.out
+job=10686334 task=10686334_1 host=c0584 sample=NA12878 threads=8
+[13:23:52] NA12878: stages validate..quantify  threads=4  tmp=/tmp/10686334
+[main] CMD: bwa mem -t 4 -R @RG\tID:NA12878\tSM:NA12878\tLB:NA12878\tPL:ILLUMINA /courses/BINF6610.202710/data/refs/grch38-1000g/GRCh38_full_analysis_set_plus_decoy_hla.fa /scratch/pathania.d/w2-run-nothreads/2_trim/NA12878.trim_R1.fastq.gz /scratch/pathania.d/w2-run-nothreads/2_trim/NA12878.trim_R2.fastq.gz
 ```
 
-Fix: both job scripts pass `--bind "${PIPELINE_DIR}",/scratch/${USER},/courses/BINF6610.202710`.
+Nothing failed: the job COMPLETED with exit 0. But it was given 8 cores (`AllocCPUS 8`, `threads=8` on the host line) and ran on 4: `--cleanenv` dropped THREADS, the pipeline fell back to its default `THREADS=${THREADS:-4}` in lib/common.sh, and bwa confirms it with `bwa mem -t 4`. Half the cores sat idle, and only the log shows it.
 
-### 3. GATK thread count: --cleanenv drops THREADS
+Fix: `--env THREADS="${THREADS}"` (with `--env TMPDIR`) on the apptainer exec line of both job scripts.
 
-`--cleanenv` removes every host variable, so without `--env THREADS=...` the pipeline ignores the job's CPU request and falls back to its own default (`THREADS=${THREADS:-4}` in lib/common.sh): a job given 8 cores would still run GATK with `--native-pair-hmm-threads` 4.
-
-```
-$ export THREADS=4
-$ apptainer exec --cleanenv $SIF bash -c 'echo "inside: THREADS=${THREADS:-unset}"'
-inside: THREADS=unset
-$ apptainer exec --cleanenv --env THREADS="$THREADS" $SIF bash -c 'echo "inside: THREADS=${THREADS:-unset}"'
-inside: THREADS=4
-$ grep -rn "THREADS:-" stages lib run_*.sh
-lib/common.sh:17:THREADS=${THREADS:-4}       # the Slurm job script sets it from SLURM_CPUS_PER_TASK
-```
-
-With `--env THREADS=${THREADS}` and `--env TMPDIR=${TMPDIR}` in the job scripts, the pipeline inside the container reports the job's values (host line first, then the line the pipeline prints inside the image):
+### 4. An arm64 image on Explorer
 
 ```
-job=10685800 task=10685797_1 host=c3014 sample=NA12878 threads=4
-[12:34:37] NA12878: stages validate..quantify  threads=4  tmp=/tmp/10685800
+$ apptainer pull --arch arm64 arm.sif docker://ubuntu:24.04
+$ apptainer exec arm.sif cat /etc/os-release
+2026/09/29 13:25:43  info unpack layer: sha256:8a38824eedc553ba80cf1eb7df278a003340f7409fd4b9002bce07db8840a9a2
+INFO:    Creating SIF file...
+-rwxr-xr-x 1 pathania.d users 28M Sep 29 13:25 arm.sif
+FATAL:   While checking container encryption: could not open image /scratch/pathania.d/containers/arm.sif: the image's architecture (arm64) could not run on the host's (amd64)
 ```
 
-### 4. Architecture error: an arm64 image on Explorer's x86_64 nodes
+The pull succeeded (a 28 MB arm.sif): Apptainer downloads and converts any architecture without complaint. Running anything from it failed at once, because Explorer is amd64. The same happens to an image built on an Apple-silicon laptop without `--platform`.
 
-An image built for arm64 (what `docker build` produces on an Apple-silicon Mac without `--platform`) cannot run on Explorer:
-
-```
-$ apptainer pull --arch arm64 micromamba-arm64.sif docker://mambaorg/micromamba:2.0.5-ubuntu24.04
-$ apptainer exec micromamba-arm64.sif uname -m
-FATAL:   While checking container encryption: could not open image /scratch/pathania.d/containers/micromamba-arm64.sif: the image's architecture (arm64) could not run on the host's (amd64)
-host: x86_64
-```
-
-Fix: always build with `docker build --platform linux/amd64`.
+Fix: always `docker build --platform linux/amd64`, and check with `docker image inspect --format "{{.Architecture}}"` before pushing.
