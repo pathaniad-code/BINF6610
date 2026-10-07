@@ -1,7 +1,6 @@
 # TROUBLESHOOTING.md — Assignment 4 (Nextflow)
 
 Four failures caused on purpose. Weeks 1–3's entries are in the Git history.
-Everything in [square brackets] is replaced with what my own runs printed.
 
 ---
 
@@ -150,27 +149,54 @@ bash is written `\$`, so Nextflow leaves it for bash.
 
 ## 4 · A two-minute time limit on HAPLOTYPECALLER, first Explorer run
 
-**Command.** In the explorer profile of `nextflow.config`:
-`withName: 'HAPLOTYPECALLER' { time = '2m' }`, then `sbatch slurm/nextflow.sbatch`.
+**Command.** In the explorer profile of `nextflow.config`, uncommented:
 
-**What it printed** (`nf-head-<jobid>.out`):
-
-```text
-[paste the error block for HAPLOTYPECALLER: exit status, Slurm job id]
+```groovy
+withName: 'HAPLOTYPECALLER' {
+    time = '2m'
+}
 ```
 
-**sacct for that task's job** (`sacct -j <native_id> --format=JobID,JobName%30,State,ExitCode,Elapsed,Timelimit`):
+then `sbatch slurm/nextflow.sbatch` (head job 10898237).
+
+**What it printed** (`nf-head-10898237.out`):
 
 ```text
-[paste]
+ERROR ~ Error executing process > 'HAPLOTYPECALLER (NA12003)'
+Caused by:
+  Process `HAPLOTYPECALLER (NA12003)` terminated with an error exit status (140)
+Command exit status:
+  140
+Work dir:
+  /home/pathania.d/BINF6610/work/2f/bef8f6d483fc64135f2bb2e10a8832
 ```
 
-**What happened.** Exit status [140]. Nextflow asks Slurm to warn it 30 s
-before the time limit and stops the task when the warning comes, so `sacct`
-shows State [CANCELLED / FAILED …], Elapsed [00:01:3x] — under the Timelimit
-of 00:02:00 — rather than TIMEOUT.
+`results/pipeline_info/trace.txt`: NA12003 `FAILED 140`, native_id 10898509,
+realtime 1m 27s; the other seven HAPLOTYPECALLER tasks `ABORTED`.
 
-**Fix.** Set the time back to `1h` and resubmit; `-resume` reused every task
-that had finished and carried on from HaplotypeCaller. `time`, `cpus` and
-`memory` are not part of the task hash, which is why this had to be done on
-the first run.
+**sacct.**
+
+```text
+JobID                               JobName      State ExitCode    Elapsed  Timelimit
+10898509       nf-HAPLOTYPECALLER_(NA12003)     FAILED     12:0   00:01:29   00:02:00
+10898509.ba+                          batch     FAILED     12:0   00:01:29
+10898542       nf-HAPLOTYPECALLER_(NA12891) CANCELLED+      0:0   00:00:40   00:02:00
+10898542.ba+                          batch     FAILED     15:0   00:00:42
+```
+
+**What happened.** Exit status 140, not a Slurm TIMEOUT. Nextflow submits
+each task asking Slurm to send it SIGUSR2 30 seconds before its time limit,
+and stops the task when that warning arrives. So the job ended at 00:01:29,
+under its Timelimit of 00:02:00; sacct records State FAILED with ExitCode 12
+(SIGUSR2 is signal 12), and Nextflow reports 128 + 12 = 140. One failed task
+stopped the run: Nextflow cancelled the seven other HaplotypeCaller jobs
+(10898542 shows CANCELLED at 00:00:40, its batch step ending on SIGTERM, 15).
+Compare week 2, where my own job script hit the limit and sacct said TIMEOUT.
+
+**Fix.** Commented the `time = '2m'` block out again, so HAPLOTYPECALLER
+gets the profile's `1h`, and resubmitted (head job 10898704). `-resume`
+reused every task that had finished — VALIDATE, FASTQC, FASTP, BWA_MEM,
+MARKDUPLICATES — and the run carried on from HaplotypeCaller. `time`, `cpus`
+and `memory` are not part of a task's hash, which is why this had to be done
+on the first run: a finished task would never have rerun to hit the limit.
+
