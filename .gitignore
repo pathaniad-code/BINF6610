@@ -9,3 +9,9 @@ slurm/logs/
 slurm/BREAK_TASK_*
 *.sif
 pull-*.out
+
+# Nextflow (week 4)
+work/
+.nextflow/
+.nextflow.log*
+nf-head-*.out
