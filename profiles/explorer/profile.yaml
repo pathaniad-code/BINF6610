@@ -1,0 +1,25 @@
+# Explorer: every rule is its own Slurm job, and runs in its image under Apptainer.
+executor: slurm
+jobs: 20                                   # at most this many Slurm jobs at once
+configfile: profiles/explorer/platform.yaml
+software-deployment-method: apptainer
+# The images, already converted and shared by the class: read-only, named by
+# Snakemake after a hash of each image's address.
+apptainer-prefix: /courses/BINF6610.202710/shared/snakemake-images
+apptainer-args: "--bind /courses,/scratch"  # the data and the reference live here
+latency-wait: 60                           # a file written on a compute node takes time to appear on the head node
+printshellcmds: true
+
+# What every job gets, unless a rule is named below.
+default-resources:
+  slurm_account: binf6610.202710
+  slurm_partition: courses
+  runtime: 30                              # minutes
+  mem_mb: 2000
+
+set-resources:
+  bwa_mem:         {mem_mb: 16000, runtime: 60}
+  haplotypecaller: {mem_mb: 16000, runtime: 60}
+  markduplicates:  {mem_mb: 8000,  runtime: 60}
+  joint_genotype:  {mem_mb: 8000,  runtime: 60}
+  filter:          {mem_mb: 8000,  runtime: 60}

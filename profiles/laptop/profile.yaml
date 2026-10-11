@@ -1,0 +1,5 @@
+# Laptop: every rule runs here, with the tools installed in week 1. No images:
+# Snakemake runs a rule in Apptainer or conda, never in Docker.
+cores: 4
+configfile: profiles/laptop/platform.yaml
+printshellcmds: true
