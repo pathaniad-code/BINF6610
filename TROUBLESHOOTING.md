@@ -1,202 +1,143 @@
-# TROUBLESHOOTING.md — Assignment 4 (Nextflow)
+# TROUBLESHOOTING — Assignment 5 (Snakemake)
 
-Four failures caused on purpose. Weeks 1–3's entries are in the Git history.
-
----
-
-## 1 · Ctrl-C halfway through a smoke run, then `-resume`
-
-**Command.**
-
-```bash
-nextflow run main.nf -profile docker -ansi-log false \
-    --samplesheet ~/smoke/samplesheet.csv --ref ~/smoke/smoke.fa --region smoke_1mb
-# Ctrl-C just after "Submitted process > MARKDUPLICATES (smoke_03)"
-nextflow run main.nf -profile docker -ansi-log false -resume \
-    --samplesheet ~/smoke/samplesheet.csv --ref ~/smoke/smoke.fa --region smoke_1mb
-```
-
-**What it printed** (the -resume run):
-
-```text
-[68/385c07] Cached process > VALIDATE
-[35/f740a4] Cached process > FASTQC (smoke_02)
-[5e/f32e4a] Cached process > FASTP (smoke_03)
-[b0/4bbff9] Cached process > FASTP (smoke_01)
-[6c/e3c92f] Cached process > FASTQC (smoke_01)
-[ba/3b39bb] Cached process > FASTQC (smoke_03)
-[aa/011c49] Cached process > FASTP (smoke_02)
-[d8/685019] Cached process > BWA_MEM (smoke_03)
-[24/5b2942] Submitted process > BWA_MEM (smoke_02)
-[73/9c46e5] Submitted process > BWA_MEM (smoke_01)
-[db/6ce1a1] Submitted process > MARKDUPLICATES (smoke_03)
-[a7/7e63de] Submitted process > HAPLOTYPECALLER (smoke_03)
-[59/9d7058] Submitted process > MARKDUPLICATES (smoke_02)
-[0d/2a5de0] Submitted process > MARKDUPLICATES (smoke_01)
-[67/8b6728] Submitted process > HAPLOTYPECALLER (smoke_02)
-[8d/dbd001] Submitted process > MULTIQC
-[3a/84d8ad] Submitted process > HAPLOTYPECALLER (smoke_01)
-[22/6fef51] Submitted process > JOINT_GENOTYPE
-[0b/0c7fb4] Submitted process > FILTER
-[53/5577a2] Submitted process > PUBLISH
-```
-
-**What was cached and what ran again.** 8 tasks were cached: VALIDATE,
-FASTQC ×3, FASTP ×3 and BWA_MEM (smoke_03) — the ones that had finished
-before Ctrl-C. Their work folders are the same as in the interrupted run
-(VALIDATE is 68/385c07 in both). BWA_MEM for smoke_01 and smoke_02 was still
-running when I pressed Ctrl-C, and MARKDUPLICATES (smoke_03) had just started,
-so those ran again, with everything downstream of them: 12 tasks in all. A
-task is cached only when its work folder finished with exit 0 and its script
-and inputs hash the same; a killed task never wrote its `.exitcode`. PUBLISH
-always reruns: it has `cache false`.
-
-**Fix.** Nothing to fix — `-resume` is my week 1–3 skip-if-done test
-(`already_done`), done by Nextflow from the work/ cache.
+Four failures caused on purpose, each put back afterwards. Last week's four
+(Nextflow) are in the Git history of this file.
 
 ---
 
-## 2 · The reference given as a queue channel to BWA_MEM
+## 1 · Ctrl-C halfway through a laptop run, then the same command again
 
-**Command.** In `main.nf`, stage 3 only:
+**Command** (laptop, smoke dataset, from an empty work/, logs/, results/, .snakemake/):
 
-```groovy
-BWA_MEM(FASTP.out.reads, channel.fromPath(params.ref), ref_index)
-```
+    snakemake --profile profiles/laptop \
+        --config samplesheet=$HOME/smoke/samplesheet.csv ref=$HOME/smoke/smoke.fa region=smoke_1mb
 
-then the smoke run with `-resume`.
+Stopped with Ctrl-C at `8 of 21 steps (38%) done`, while `bwa_mem` was aligning `smoke_01`.
 
-**What it printed.**
+**What it printed:**
 
-```text
-[73/9c46e5] Cached process > BWA_MEM (smoke_01)
-[0d/2a5de0] Cached process > MARKDUPLICATES (smoke_01)
-[3a/84d8ad] Cached process > HAPLOTYPECALLER (smoke_01)
-[68/e38d1a] Submitted process > JOINT_GENOTYPE
-ERROR ~ Error executing process > 'JOINT_GENOTYPE'
-  Process `JOINT_GENOTYPE` terminated with an error exit status (1)
-Command error:
-  missing GVCF for smoke_02
-  missing GVCF for smoke_03
-  2 sample(s) have no GVCF - refusing to genotype a partial cohort
-```
+    ^CTerminating processes on user request, this might take some time.
+    RuleException:
+    CalledProcessError in file "/home/linux/BINF6610/Snakefile", line 210:
+    Command 'set -euo pipefail;  (bwa mem -t 4 ... ) 2> logs/bwa_mem/smoke_01.log' died with <Signals.SIGINT: 2>.
+    Error in rule bwa_mem:
+        jobid: 5
+        output: work/align/smoke_01.bam
+    WorkflowError:
+    At least one job did not complete successfully.
 
-**What happened.** BWA_MEM ran for one sample only, smoke_01; smoke_02 and
-smoke_03 never reached stage 3. `channel.fromPath(params.ref)` is a queue
-channel holding the FASTA once: the first sample consumed it, and the other
-two waited for a reference that never came. (smoke_01's BWA_MEM was even
-cached: the reference is the same file either way, so that task's hash was
-unchanged — only the number of tasks changed.) The run did not stop at
-BWA_MEM; JOINT_GENOTYPE stopped it, because its check found 2 samples without
-a GVCF. Without that check, the run would have "succeeded" with a one-sample
-cohort VCF.
+**Then the same command again:** I aimed at an `IncompleteFilesException` telling me to add
+`--rerun-incomplete`, and did not get one. The rerun simply planned and ran what was left, and
+ended with `13 of 13 steps (100%) done`: 21 jobs minus the 8 that had finished.
 
-**Fix.** Put back `ref`, the value channel from `file(params.ref)`, which
-every sample can read as often as it needs:
-`BWA_MEM(FASTP.out.reads, ref, ref_index)`.
+**Why:** Ctrl-C stopped Snakemake cleanly, not by killing it. The `bwa_mem` job that was
+running died with SIGINT, so Snakemake treated it as a failed job: it deleted its output,
+`work/align/smoke_01.bam`, and did not leave it marked incomplete. With nothing marked
+incomplete, there was nothing for `--rerun-incomplete` to do. That option is for a run killed
+outright (a closed terminal, `kill -9`, a head job that hits its `--time`), which cannot clean
+up and leaves the files it was writing marked incomplete; the next run then stops with
+`IncompleteFilesException` until it is given `--rerun-incomplete`.
+
+**Fix:** none needed here. Run the same command again; every finished job is reused.
 
 ---
 
-## 3 · The backslash taken off one `\$(…)`
+## 2 · A log: without {sample}
 
-**Command.** In `modules/joint_genotype.nf`, line 44:
-`tmp=\$(mktemp -d …)` → `tmp=$(mktemp -d …)`, then the smoke run with `-resume`.
+**Change:** in `rule bwa_mem`, `log: "logs/bwa_mem/{sample}.log"` became `log: "logs/bwa_mem.log"`.
 
-**What it printed.** Every task up to HAPLOTYPECALLER was cached; JOINT_GENOTYPE ran and failed:
+**Command:**
 
-```text
-ERROR ~ Error executing process > 'JOINT_GENOTYPE'
-  Process `JOINT_GENOTYPE` terminated with an error exit status (2)
-Command executed:
-  tmp=smoke_1mbmktemp -d "${TMPDIR:-/tmp}/genomicsdb.XXXXXX")
-  ...
-      -L smoke.fa \
-  ...
-      --reference smoke_1mb \
-  ...
-      -L  \
-Command error:
-  .command.sh: line 19: syntax error near unexpected token `)'
-Work dir:
-  /home/linux/BINF6610/work/06/5ba2a632d07cbbfef488d17a02c9e0
-```
+    snakemake --profile profiles/laptop -n --config samplesheet=... ref=... region=smoke_1mb
 
-**From the task's work folder.**
+**What it printed** (before building any plan):
 
-- `.command.sh`, lines 17–21 — the script Nextflow wrote for bash:
-```text
-  fi
+    RuleException in file "/home/linux/BINF6610/Snakefile", line 195:
+    Not all output, log and benchmark files of rule bwa_mem contain the same wildcards. This is crucial though, in order to avoid that two or more jobs write to the same file.
 
-  tmp=smoke_1mbmktemp -d "${TMPDIR:-/tmp}/genomicsdb.XXXXXX")
-  trap 'rm -rf "$tmp"' EXIT
-```
-  Nextflow read the unescaped `$(` as one of its own placeholders and filled
-  it with a value, so every `${…}` after it got the value meant for the one
-  before: `tmp=` got the region (`smoke_1mb`), GenomicsDBImport's `-L` got the
-  FASTA name (`smoke.fa`), GenotypeGVCFs' `--reference` got the region, and
-  its `-L` was left empty.
-- `.command.err`:
-  `.command.sh: line 19: syntax error near unexpected token ')'`
-- `bash .command.run` in that folder, which reruns the task by hand in the
-  same container without Nextflow, printed the same line-19 syntax error and
-  exited 2. So the fault is in the script text Nextflow generated, not in
-  GATK and not in Nextflow's running of it. Nextflow did not catch it; bash did.
+**Why:** a wildcard gets its value only from the output, and the output
+`work/align/{sample}.bam` has one job per sample. A log with no `{sample}` would be the same
+file, `logs/bwa_mem.log`, for all three jobs, which can run at the same time and would overwrite
+each other's messages. Snakemake refuses any rule whose output, log and benchmark files do not
+have the same wildcards.
 
-**Fix.** Put the backslash back: inside a script block every `$` meant for
-bash is written `\$`, so Nextflow leaves it for bash.
+**Fix:** put `{sample}` back: `log: "logs/bwa_mem/{sample}.log"`.
 
 ---
 
-## 4 · A two-minute time limit on HAPLOTYPECALLER, first Explorer run
+## 3 · Both wildcard_constraints: deleted from the stage-2 rules
 
-**Command.** In the explorer profile of `nextflow.config`, uncommented:
+**Change:** deleted `wildcard_constraints: sample=one_of(PAIRED)` from `fastp_paired` and
+`wildcard_constraints: sample=one_of(SINGLE)` from `fastp_single`.
 
-```groovy
-withName: 'HAPLOTYPECALLER' {
-    time = '2m'
-}
-```
+**Command:** `snakemake --profile profiles/laptop -n --config ...`, and again asking for one
+paired sample's file, `work/trim/smoke_01_R1.trim.fastq.gz`.
 
-then `sbatch slurm/nextflow.sbatch` (head job 10898237).
+**What it printed:**
 
-**What it printed** (`nf-head-10898237.out`):
+    AmbiguousRuleException:
+    Rules fastp_paired and fastp_single are ambiguous for the file work/trim/smoke_01_R1.trim.fastq.gz.
+    Consider starting rule output with a unique prefix, constrain your wildcards, or use the ruleorder directive.
+    Wildcards:
+            fastp_single: sample=smoke_01
+            fastp_paired: sample=smoke_01
 
-```text
-ERROR ~ Error executing process > 'HAPLOTYPECALLER (NA12003)'
-Caused by:
-  Process `HAPLOTYPECALLER (NA12003)` terminated with an error exit status (140)
-Command exit status:
-  140
-Work dir:
-  /home/pathania.d/BINF6610/work/2f/bef8f6d483fc64135f2bb2e10a8832
-```
+**Which rules and which file:** `fastp_paired` and `fastp_single`, for
+`work/trim/smoke_01_R1.trim.fastq.gz`.
 
-`results/pipeline_info/trace.txt`: NA12003 `FAILED 140`, native_id 10898509,
-realtime 1m 27s; the other seven HAPLOTYPECALLER tasks `ABORTED`.
+**Why:** the two rules have the same output names on purpose, so that `bwa_mem` finds a
+sample's trimmed reads at one path whether it is paired or not. Without the constraints,
+`{sample}` may be anything, so `work/trim/smoke_01_R1.trim.fastq.gz` matches the outputs of
+both rules and Snakemake cannot choose between them. The constraints let each sample's name
+match only one rule: `smoke_01|smoke_02` for `fastp_paired`, `smoke_03` for `fastp_single`.
 
-**sacct.**
+**Fix:** put both `wildcard_constraints:` back.
 
-```text
-JobID                               JobName      State ExitCode    Elapsed  Timelimit
-10898509       nf-HAPLOTYPECALLER_(NA12003)     FAILED     12:0   00:01:29   00:02:00
-10898509.ba+                          batch     FAILED     12:0   00:01:29
-10898542       nf-HAPLOTYPECALLER_(NA12891) CANCELLED+      0:0   00:00:40   00:02:00
-10898542.ba+                          batch     FAILED     15:0   00:00:42
-```
+---
 
-**What happened.** Exit status 140, not a Slurm TIMEOUT. Nextflow submits
-each task asking Slurm to send it SIGUSR2 30 seconds before its time limit,
-and stops the task when that warning arrives. So the job ended at 00:01:29,
-under its Timelimit of 00:02:00; sacct records State FAILED with ExitCode 12
-(SIGUSR2 is signal 12), and Nextflow reports 128 + 12 = 140. One failed task
-stopped the run: Nextflow cancelled the seven other HaplotypeCaller jobs
-(10898542 shows CANCELLED at 00:00:40, its batch step ending on SIGTERM, 15).
-Compare week 2, where my own job script hit the limit and sacct said TIMEOUT.
+## 4 · First Explorer run without software-deployment-method: apptainer
 
-**Fix.** Commented the `time = '2m'` block out again, so HAPLOTYPECALLER
-gets the profile's `1h`, and resubmitted (head job 10898704). `-resume`
-reused every task that had finished — VALIDATE, FASTQC, FASTP, BWA_MEM,
-MARKDUPLICATES — and the run carried on from HaplotypeCaller. `time`, `cpus`
-and `memory` are not part of a task's hash, which is why this had to be done
-on the first run: a finished task would never have rerun to hit the limit.
+**Change:** deleted `software-deployment-method: apptainer` from
+`profiles/explorer/profile.yaml`, on Explorer only (not committed), then
+`sbatch slurm/snakemake.sbatch`: head job 10996721.
 
+**What happened:** `validate` finished (`Finished jobid: 7 (Rule: validate)`); then all 8
+`fastqc` jobs and all 6 `fastp_paired` jobs failed. The head job had submitted 17 jobs to Slurm
+and stopped after 5 min 26 s. Its own log says only that a Slurm job failed:
+
+    Error in rule fastp_paired:
+        message: SLURM-job '10996793' failed, SLURM status is: 'FAILED'. Reason: Unknown.
+        log: logs/fastp/NA12891.log, .snakemake/slurm_logs/rule_fastp_paired/NA12891/10996793.log
+    WorkflowError:
+    At least one job did not complete successfully.
+
+**Which rule failed:** `fastp_paired` (and every `fastqc`).
+
+**The exit status**, from that job's own Slurm log,
+`.snakemake/slurm_logs/rule_fastp_paired/NA12891/10996793.log`:
+
+    Command 'set -euo pipefail;  fastp --in1 .../NA12891_R1.fastq.gz --in2 .../NA12891_R2.fastq.gz ... --thread 4 2> logs/fastp/NA12891.log' returned non-zero exit status 127.
+    srun: error: c0617: task 0: Exited with exit code 1
+
+**What the rule's own log says**, `logs/fastp/NA12891.log` (and `logs/fastqc/NA12878.log`):
+
+    /usr/bin/bash: line 1: fastp: command not found
+    /usr/bin/bash: line 1: fastqc: command not found
+
+**Why:** exit status 127 is "command not found". A rule's `container:` is used only when the run
+is given `--software-deployment-method apptainer`; without it, each command runs on the bare
+compute node, where fastp and fastqc are not installed. `validate` succeeded because it needs
+only bash, awk and gzip, which every node has.
+
+**Fix:** put the line back (`git checkout profiles/explorer/profile.yaml`) and submit the same
+head job again: head job 10996870, `46 of 46 steps (100%) done` in 28 min 13 s.
+
+**Did validate, which had finished, run again?** Yes. `snakemake -n` after putting the line
+back listed it, with:
+
+    rule validate:
+        reason: Software environment definition has changed since last execution
+
+It had run outside any image the first time and would now run in the `tools` image, so
+Snakemake counts its software environment as changed and redoes it. Everything else had
+failed, so the second head job ran all 46 steps.
