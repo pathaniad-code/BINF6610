@@ -27,7 +27,7 @@ workflow {
     // files(), never channel.fromPath. Every sample reads them, as often as it needs.
     ref       = file(params.ref)                                // the FASTA
     ref_index = files("${params.ref}.*")                        // its .fai and the BWA index
-    ref_dict  = file("${ref.parent}/${ref.baseName}.dict")      // GATK's sequence dictionary
+    ref_dict  = ref.resolveSibling("${ref.baseName}.dict")      // GATK's sequence dictionary
 
     // Stage -: one item per sample, [meta, reads], each column read by name.
     sheet = file(params.samplesheet)
