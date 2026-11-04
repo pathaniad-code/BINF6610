@@ -10,3 +10,8 @@ smoke-run*
 cluster-run*
 aws-run*
 *.sif
+
+tests
+.github
+ci-out
+cd-run*
