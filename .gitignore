@@ -19,3 +19,5 @@ nf-head-*.out
 # Snakemake (week 5)
 .snakemake/
 slurm/*.out
+*.db
+not-loaded/
